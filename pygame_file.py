@@ -3,8 +3,10 @@ import sys
 import json
 import random
 
+
 # Initialize PyGame
 pygame.init()
+pygame.mixer.init()
 
 # Set up the game window
 screen_width = 800
@@ -42,8 +44,10 @@ score = 0
 max_score = 0
 
 # Player settings
+player_model = pygame.image.load('./data/images/player.png')
 player_width = 50
 player_height = 60
+player_model = pygame.transform.scale(player_model, (player_width, player_height))
 player_x = screen_width // 2 - player_width // 2
 player_y = screen_height - player_height - 10
 player_speed = 5
@@ -57,8 +61,11 @@ bullet_mult = 1
 bullets = []
 
 # Enemy settings
+enemy_model = pygame.image.load('./data/images/enemy.png')
+enemy_model = pygame.transform.rotate(enemy_model, 180)
 enemy_width = 50
 enemy_height = 50
+enemy_model = pygame.transform.scale(enemy_model, (enemy_width, enemy_height))
 enemy_speed = 2
 enemies = []
 
@@ -68,14 +75,43 @@ enemy_spawn_time = 2000 / difficulty_coef
 
 # Upgrades
 upgrades = {
-    "Slower Enemies": {"cost": 1000, "active": False},
-    "Double Damage": {"cost": 1500, "active": False},
-    "Triple Bullets": {"cost": 3000, "active": False},
-    "Speed Boost": {"cost": 5000, "active": False},
+    "Slower Enemies": {"cost": 1000, "purchased": False, "active": False},
+    "Double Damage": {"cost": 1500, "purchased": False, "active": False},
+    "Triple Bullets": {"cost": 3000, "purchased": False, "active": False},
+    "Speed Boost": {"cost": 5000, "purchased": False, "active": False},
 }
 
+shoot_sound = pygame.mixer.Sound('./data/sounds/shoot.wav')
+hit_sound = pygame.mixer.Sound('./data/sounds/hit.wav')
+explosion_sound = pygame.mixer.Sound('./data/sounds/explosion.wav')
+win_sound = pygame.mixer.Sound('./data/sounds/win.ogg')
+lose_sound = pygame.mixer.Sound('./data/sounds/lose.wav')
+got_hit_sound = pygame.mixer.Sound('./data/sounds/got_hit.wav')
+music1 = pygame.mixer.Sound('./data/sounds/music1.mp3')
 # Collision detection function
 
+class Planet:
+    def __init__(self, x, y, speed, planet):
+        self.x = x
+        self.y = y
+        self.speed = speed
+        self.image = pygame.image.load(f'./data/images/planet0{planet}.png')
+        size = random.randint(50, 100)
+        self.image = pygame.transform.scale(self.image, (size, size))
+        self.image = pygame.transform.rotate(self.image, random.randint(-10, 10))
+
+    def update(self):
+        self.y += self.speed
+        if self.y > screen_height:
+            self.y = 0
+            self.x = random.randint(0, screen_width)
+
+    def draw(self, screen):
+        screen.blit(self.image, (self.x, self.y))
+
+planets = []
+for _ in range(10):
+    planets.append(Planet(random.randint(0, screen_width), 0, random.sample([0.5, 0.6, 0.7, 0.8, 0.9, 1], 1)[0], random.randint(0, 9)))
 
 def check_collision(rect1, rect2):
     return pygame.Rect(rect1).colliderect(pygame.Rect(rect2))
@@ -95,9 +131,13 @@ def write_user_data():
 
 
 def game_over(state=0):
-    global game_state, max_score, wave, enemies_destroyed, score, lives, player_damage, bullet_mult, enemy_speed, player_speed, enemies, bullets, player_x, player_y, bullet_width, bullet_height, bullet_speed, enemy_width, enemy_height, enemy_speed, enemy_timer, enemy_spawn_time
+    global music1, lose_sound, upgrades, game_state, max_score, wave, enemies_destroyed, score, lives, player_damage, bullet_mult, enemy_speed, player_speed, enemies, bullets, player_x, player_y, bullet_width, bullet_height, bullet_speed, enemy_width, enemy_height, enemy_speed, enemy_timer, enemy_spawn_time, enemies_count
+    music1.stop()
+    lose_sound.play()
     if score > max_score:
         max_score = score
+        print('new best', max_score)
+    write_user_data()
     screen.fill(BLACK)
     if state == 0:
         game_over_text = font.render("Game Over", True, WHITE)
@@ -108,45 +148,51 @@ def game_over(state=0):
                 2 - 70, screen_height // 2 - 50))
     screen.blit(score_text, (screen_width // 2 - 50, screen_height // 2))
     pygame.display.flip()
+
+    
+
     wave = 1
     difficulty_coef = 1
     lives = 5
     enemies_count = 10
     enemies_destroyed = 0
     score = 0
-    max_score = 0
+    read_user_data()
 
     # Player settings
-    player_width = 50
-    player_height = 60
-    player_x = screen_width // 2 - player_width // 2
-    player_y = screen_height - player_height - 10
     player_speed = 5
     player_damage = 50
 
     # Bullet settings
-    bullet_width = 5
-    bullet_height = 10
     bullet_speed = 7
     bullet_mult = 1
     bullets = []
 
     # Enemy settings
-    enemy_width = 50
-    enemy_height = 50
     enemy_speed = 2
     enemies = []
 
+    for upgrade, details in upgrades.items():
+            if details["active"] == True:
+                if upgrade == "Slower Enemies":
+                    enemy_speed /= 1.5
+                elif upgrade == "Double Damage":
+                    player_damage *= 2
+                elif upgrade == "Triple Bullets":
+                    bullet_mult *= 3
+                elif upgrade == "Speed Boost":
+                    player_speed *= 2
+                    
     # Spawn an enemy every enewy_spawn_time milliseconds
     enemy_timer = 0
     enemy_spawn_time = 2000 / difficulty_coef
     pygame.time.wait(2000)
     game_state = MAIN_MENU
-    write_user_data()
-
+    
 
 def start_new_wave():
     global wave, difficulty_coef, lives, enemy_spawn_time, enemies_destroyed, enemies_count, enemy_speed
+    win_sound.play()
     wave += 1
     difficulty_coef += 0.2
     lives += 1
@@ -187,6 +233,7 @@ def draw_upgrades_screen():
     y_offset = 100
     for upgrade, details in upgrades.items():
         cost = details["cost"]
+        purchased = details["purchased"]
         active = details["active"]
         upgrade_text = small_font.render(
             f"{upgrade} (Cost: {cost})", True, WHITE)
@@ -211,7 +258,7 @@ def handle_main_menu_click(mouse_pos):
             global game_state
             game_state = UPGRADES
         elif screen_height // 2 + 30 <= y <= screen_height // 2 + 60:
-            # Exit
+            write_user_data()
             pygame.quit()
             sys.exit()
 
@@ -222,35 +269,46 @@ def handle_upgrades_screen_click(mouse_pos):
     y_offset = 100
     for upgrade, details in upgrades.items():
         if screen_width // 2 - 100 <= x <= screen_width // 2 + 100 and y_offset <= y <= y_offset + 20:
-            if max_score >= details["cost"]:
-                details["active"] = not details["active"]  # Toggle activation
-                if details["active"]:
-                    if upgrade == "Slower Enemies":
-                        enemy_speed /= 1.5
-                    elif upgrade == "Double Damage":
-                        player_damage *= 2
-                    elif upgrade == "Triple Bullets":
-                        bullet_mult *= 3
-                    elif upgrade == "Speed Boost":
-                        player_speed *= 1.5  # Increase player speed
-                else:
-                    if upgrade == "Slower Enemies":
-                        enemy_speed *= 1.5
-                    elif upgrade == "Double Damage":
-                        player_damage /= 2
-                    elif upgrade == "Triple Bullets":
-                        bullet_mult = 1
-                    elif upgrade == "Speed Boost":
-                        player_speed /= 1.5  # Reset player speed
-            # break
+            if not details["purchased"] and max_score >= details["cost"]:
+                # Purchase the upgrade
+                max_score -= details["cost"]
+                details["purchased"] = True
+                details["active"] = True  # Activate the upgrade by default
+                apply_upgrade_effect(upgrade, True)
+            elif details["purchased"]:
+                # Toggle the upgrade's active state
+                details["active"] = not details["active"]
+                apply_upgrade_effect(upgrade, details["active"])
+        y_offset += 30
     if screen_width // 2 - 30 <= x <= screen_width // 2 + 30 and screen_height - 70 <= y <= screen_height - 30:
         global game_state
         game_state = MAIN_MENU
 
 
+def apply_upgrade_effect(upgrade, activate):
+    global player_damage, bullet_mult, enemy_speed, player_speed
+    if upgrade == "Slower Enemies":
+        enemy_speed /= 1.5 if activate else 1.5
+    elif upgrade == "Double Damage":
+        player_damage *= 2 if activate else 0.5
+    elif upgrade == "Triple Bullets":
+        if activate:
+            bullet_mult *= 3
+        else:
+            print(bullet_mult, bullet_mult / 3)
+            bullet_mult = int(bullet_mult / 3)
+    elif upgrade == "Speed Boost":
+        if activate:
+            player_speed *= 2
+        else:
+            player_speed /= 2
+
+
 def start_game():
-    global game_state, wave, enemies_destroyed, score, lives
+    global music1, game_state, wave, enemies_destroyed, score, lives, difficulty_coef
+    music1.play()
     game_state = PLAYING
+    difficulty_coef = 1
     wave = 1
     enemies_destroyed = 0
     score = 0
@@ -274,7 +332,7 @@ while True:
                 handle_upgrades_screen_click(mouse_pos)
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
-                # Spawn bullets side by side based on bullet_mult
+                shoot_sound.play()
                 for i in range(bullet_mult):
                     bullet_x = player_x + \
                         (i - (bullet_mult - 1) / 2) * \
@@ -298,8 +356,6 @@ while True:
         if keys[pygame.K_RIGHT] and player_x < screen_width - player_width:
             player_x += player_speed
 
-        # Spawn enemies
-            # Update bullet positions
         for bullet in bullets:
             bullet[1] -= bullet_speed
         bullets = [bullet for bullet in bullets if bullet[1] > 0]
@@ -321,9 +377,11 @@ while True:
             for enemy in enemies[:]:
                 if check_collision((bullet[0], bullet[1], bullet_width, bullet_height),
                                    (enemy[0], enemy[1], enemy_width, enemy_height)):
+                    hit_sound.play()
                     bullets.remove(bullet)
                     enemy[2] -= player_damage  # Reduce enemy health
                     if enemy[2] <= 0:  # If enemy health reaches zero
+                        explosion_sound.play()
                         enemies.remove(enemy)
                         score += 10
                         enemies_destroyed += 1
@@ -332,6 +390,7 @@ while True:
         # Remove enemies that are off the screen
         for enemy in enemies[:]:
             if enemy[1] > screen_height:
+                got_hit_sound.play()
                 lives -= 1
                 enemies.remove(enemy)
                 if lives <= 0:
@@ -344,9 +403,16 @@ while True:
         # Fill the screen with black
         screen.fill((0, 0, 0))
 
+        #Update the planets
+        for planet in planets:
+            planet.update()
+
+        # Draw planets
+        for planet in planets:
+            planet.draw(screen)
+
         # Draw the player
-        pygame.draw.rect(screen, (0, 128, 255), (player_x,
-                         player_y, player_width, player_height))
+        screen.blit(player_model, (player_x, player_y))
 
         # Draw the bullets
         for bullet in bullets:
@@ -355,8 +421,7 @@ while True:
 
         # Draw the enemies
         for enemy in enemies:
-            pygame.draw.rect(screen, (255, 0, 0),
-                             (enemy[0], enemy[1], enemy_width, enemy_height))
+            screen.blit(enemy_model, (enemy[0], enemy[1]))
             # Draw enemy health bar
             health_bar_width = enemy_width * \
                 (enemy[2] / (100 * difficulty_coef))  # Scale health bar
