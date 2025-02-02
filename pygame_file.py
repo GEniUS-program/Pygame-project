@@ -216,7 +216,7 @@ def upgrade_player():
 
 def draw_main_menu():
     screen.fill(BLACK)
-    title_text = font.render("Simple Shooter Game", True, WHITE)
+    title_text = font.render("Space Invaders: Galactic Defense", True, WHITE)
     play_text = font.render("Играть", True, WHITE)
     upgrade_text = font.render("Улучшения", True, WHITE)
     exit_text = font.render("Выйти", True, WHITE)
